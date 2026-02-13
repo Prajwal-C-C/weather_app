@@ -7,9 +7,9 @@ const searchBtn = document.querySelector("#search-btn");
 const leftPanel = document.querySelector(".left-panel");
 const forecastList = document.querySelector("#forecast-list");
 
-// We need to save the data globally so we can switch tabs without re-fetching
 let globalForecastData = []; 
 
+// 1. Check Weather by City Name
 async function checkWeather(city) {
     try {
         const response = await fetch(weatherUrl + city + `&appid=${apiKey}`);
@@ -17,7 +17,7 @@ async function checkWeather(city) {
         
         const data = await response.json();
 
-        // 1. Update Left Panel (Current Weather)
+        // Update Left Panel (Current Weather)
         document.querySelector(".city").innerHTML = data.name;
         document.querySelector(".temp").innerHTML = Math.round(data.main.temp) + "°C";
         document.querySelector(".humidity").innerHTML = data.main.humidity + "%";
@@ -30,7 +30,7 @@ async function checkWeather(city) {
 
         updateBackground(weatherMain);
         
-        // 2. Fetch Forecast Data
+        // Fetch Forecast
         getForecast(city);
 
     } catch (error) {
@@ -38,29 +38,54 @@ async function checkWeather(city) {
     }
 }
 
+// 2. Fetch Forecast Data
 async function getForecast(city) {
     const response = await fetch(forecastUrl + city + `&appid=${apiKey}`);
     const data = await response.json();
-    globalForecastData = data.list; // Save data for toggling
-
-    // Show Hourly by default
-    showHourly(); 
+    globalForecastData = data.list;
+    
+    showHourly(); // Default view
 }
 
-// --- TAB SWITCHING FUNCTIONS ---
+// --- NEW LOGIC HERE ---
 
 function showHourly() {
-    // 1. Highlight the correct tab
+
     document.querySelectorAll(".tab-btn")[0].classList.add("active");
     document.querySelectorAll(".tab-btn")[1].classList.remove("active");
 
-    // 2. Filter Data: Get next 8 items (approx 24 hours)
-    const hourlyData = globalForecastData.slice(0, 8);
-    
-    // 3. Render List
+    const now = new Date();
+
+    // Get current hour
+    const currentHour = now.getHours();
+
+    // Find next 3-hour rounded time
+    const nextRoundedHour = Math.ceil(currentHour / 3) * 3;
+
+    // Create new Date object for next rounded slot
+    const nextSlotTime = new Date(now);
+    nextSlotTime.setHours(nextRoundedHour, 0, 0, 0);
+
+    const nextSlotTimestamp = nextSlotTime.getTime();
+
+    // Filter forecast data starting from next rounded slot
+    const hourlyData = globalForecastData.filter(item => {
+        const forecastTime = item.dt * 1000;
+        return forecastTime >= nextSlotTimestamp;
+    }).slice(0, 8);  // take next 8 slots
+
     forecastList.innerHTML = "";
+
+    if (hourlyData.length === 0) {
+        forecastList.innerHTML = "<p class='placeholder-text'>No upcoming hourly data available.</p>";
+        return;
+    }
+
     hourlyData.forEach(item => {
-        const time = new Date(item.dt_txt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+        const dateObj = new Date(item.dt * 1000);
+        const time = dateObj.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+
         const temp = Math.round(item.main.temp) + "°C";
         const desc = item.weather[0].description;
         const icon = item.weather[0].icon;
@@ -73,20 +98,33 @@ function showHourly() {
                 <p class="item-temp">${temp}</p>
             </div>
         `;
+
         forecastList.innerHTML += html;
     });
 }
 
+
 function showWeekly() {
-    // 1. Highlight the correct tab
+    // UI: Toggle Active Tab
     document.querySelectorAll(".tab-btn")[0].classList.remove("active");
     document.querySelectorAll(".tab-btn")[1].classList.add("active");
 
-    // 2. Filter Data: Get one reading per day (12:00 PM)
-    const weeklyData = globalForecastData.filter(item => item.dt_txt.includes("12:00:00"));
+    // LOGIC: Filter for Next Days only
+    const weeklyData = globalForecastData.filter(item => {
+        const date = new Date(item.dt_txt);
+        const today = new Date();
+        
+        // 1. Must be around Noon (12:00:00) to get a good day temperature
+        const isNoon = item.dt_txt.includes("12:00:00");
+        
+        // 2. Must NOT be Today (Check if date matches today's date)
+        const isNotToday = date.getDate() !== today.getDate();
+        
+        return isNoon && isNotToday;
+    });
 
-    // 3. Render List
     forecastList.innerHTML = "";
+    
     weeklyData.forEach(item => {
         const date = new Date(item.dt_txt).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
         const temp = Math.round(item.main.temp) + "°C";
@@ -105,8 +143,9 @@ function showWeekly() {
     });
 }
 
+// --- HELPER FUNCTIONS ---
+
 function updateBackground(weather) {
-    // Dynamic Gradient based on weather
     if (weather === "Clear") {
         leftPanel.style.background = "linear-gradient(135deg, #fce38a, #f38181)";
     } else if (weather === "Clouds") {
@@ -122,40 +161,26 @@ function updateBackground(weather) {
     }
 }
 
-// Event Listeners
-searchBtn.addEventListener("click", () => checkWeather(searchBox.value));
-searchBox.addEventListener("keydown", (e) => {
-    if(e.key === "Enter") checkWeather(searchBox.value);
-});
-
-// ... (Keep all your existing code above) ...
-
-// NEW: Function to get user's location automatically
+// Geolocation Support
 function getUserLocation() {
     if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
             (position) => {
-                // Success! We got the coordinates
                 const lat = position.coords.latitude;
                 const lon = position.coords.longitude;
-                
-                // Now call the API with coordinates instead of city name
                 checkWeatherByCoords(lat, lon);
             },
             (error) => {
-                // Error (User denied permission or location failed)
-                console.log("Geolocation error:", error);
-                alert("Please allow location access or search for a city manually.");
+                // If denied, show default city (e.g., London or New York)
+                checkWeather("London");
             }
         );
     } else {
-        alert("Geolocation is not supported by your browser.");
+        checkWeather("London");
     }
 }
 
-// NEW: Function to fetch weather using Latitude & Longitude
 async function checkWeatherByCoords(lat, lon) {
-    // Note: We use a slightly different URL for coordinates
     const coordsUrl = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&units=metric&appid=${apiKey}`;
     const forecastUrlCoords = `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&units=metric&appid=${apiKey}`;
 
@@ -163,30 +188,30 @@ async function checkWeatherByCoords(lat, lon) {
         const response = await fetch(coordsUrl);
         const data = await response.json();
 
-        // 1. Update Left Panel (Current Weather)
-        document.querySelector(".city").innerHTML = data.name; // API gives us the city name for coords!
+        document.querySelector(".city").innerHTML = data.name;
         document.querySelector(".temp").innerHTML = Math.round(data.main.temp) + "°C";
         document.querySelector(".humidity").innerHTML = data.main.humidity + "%";
         document.querySelector(".wind").innerHTML = data.wind.speed + " km/h";
         document.querySelector(".desc").innerHTML = data.weather[0].description;
+        document.querySelector(".weather-icon").src = `https://openweathermap.org/img/wn/${data.weather[0].icon}@4x.png`;
         
-        const weatherMain = data.weather[0].main;
-        const iconCode = data.weather[0].icon;
-        document.querySelector(".weather-icon").src = `https://openweathermap.org/img/wn/${iconCode}@4x.png`;
+        updateBackground(data.weather[0].main);
 
-        updateBackground(weatherMain); // Use your existing background function
-
-        // 2. Fetch Forecast Data (We need a similar fetch for the forecast endpoint)
         const forecastResponse = await fetch(forecastUrlCoords);
         const forecastData = await forecastResponse.json();
-        
-        globalForecastData = forecastData.list; // Save data for toggling
-        showHourly(); // Show the list
+        globalForecastData = forecastData.list;
+        showHourly();
 
     } catch (error) {
         console.error("Error fetching weather by coords:", error);
     }
 }
 
-// CALL THIS FUNCTION AUTOMATICALLY ON PAGE LOAD
+// Event Listeners
+searchBtn.addEventListener("click", () => checkWeather(searchBox.value));
+searchBox.addEventListener("keydown", (e) => {
+    if(e.key === "Enter") checkWeather(searchBox.value);
+});
+
+// Start App
 getUserLocation();
