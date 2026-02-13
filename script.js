@@ -1,125 +1,192 @@
 const apiKey = "00f515fd53a31cafd9607a9c3bdb9f70";
-const apiUrl = "https://api.openweathermap.org/data/2.5/weather?units=metric&q=";
-// NEW: Forecast API URL
+const weatherUrl = "https://api.openweathermap.org/data/2.5/weather?units=metric&q=";
 const forecastUrl = "https://api.openweathermap.org/data/2.5/forecast?units=metric&q=";
 
-const searchBox = document.querySelector(".search input");
-const searchBtn = document.querySelector(".search button");
-const weatherIcon = document.querySelector(".weather-icon");
-const card = document.querySelector(".card");
-const errorMsg = document.querySelector(".error");
+const searchBox = document.querySelector("#city-input");
+const searchBtn = document.querySelector("#search-btn");
+const leftPanel = document.querySelector(".left-panel");
+const forecastList = document.querySelector("#forecast-list");
 
-// Function 1: Get Current Weather
+// We need to save the data globally so we can switch tabs without re-fetching
+let globalForecastData = []; 
+
 async function checkWeather(city) {
-    const response = await fetch(apiUrl + city + `&appid=${apiKey}`);
+    try {
+        const response = await fetch(weatherUrl + city + `&appid=${apiKey}`);
+        if (!response.ok) throw new Error("City not found");
+        
+        const data = await response.json();
 
-    if (response.status == 404) {
-        errorMsg.style.display = "block";
-        document.querySelector(".weather").style.display = "none";
-    } else {
-        errorMsg.style.display = "none";
-        var data = await response.json();
-
-        // Update Text
+        // 1. Update Left Panel (Current Weather)
         document.querySelector(".city").innerHTML = data.name;
         document.querySelector(".temp").innerHTML = Math.round(data.main.temp) + "°C";
         document.querySelector(".humidity").innerHTML = data.main.humidity + "%";
         document.querySelector(".wind").innerHTML = data.wind.speed + " km/h";
+        document.querySelector(".desc").innerHTML = data.weather[0].description;
         
-        let desc = data.weather[0].description;
-        document.querySelector(".status-message").innerHTML = desc.charAt(0).toUpperCase() + desc.slice(1);
+        const weatherMain = data.weather[0].main;
+        const iconCode = data.weather[0].icon;
+        document.querySelector(".weather-icon").src = `https://openweathermap.org/img/wn/${iconCode}@4x.png`;
 
-        // Update Main Icon & Background
-        updateWeatherVisuals(data.weather[0].main);
-
-        // --- CALL THE NEW FORECAST FUNCTION HERE ---
+        updateBackground(weatherMain);
+        
+        // 2. Fetch Forecast Data
         getForecast(city);
 
-        document.querySelector(".weather").style.display = "block";
+    } catch (error) {
+        alert("City not found! Please check the spelling.");
     }
 }
 
-// Function 2: Get Hourly & Weekly Forecast
 async function getForecast(city) {
     const response = await fetch(forecastUrl + city + `&appid=${apiKey}`);
     const data = await response.json();
+    globalForecastData = data.list; // Save data for toggling
 
-    // --- PART A: HOURLY FORECAST (Next 24 hours) ---
-    const hourlyContainer = document.querySelector(".hourly-container");
-    hourlyContainer.innerHTML = ""; // Clear old data
+    // Show Hourly by default
+    showHourly(); 
+}
+
+// --- TAB SWITCHING FUNCTIONS ---
+
+function showHourly() {
+    // 1. Highlight the correct tab
+    document.querySelectorAll(".tab-btn")[0].classList.add("active");
+    document.querySelectorAll(".tab-btn")[1].classList.remove("active");
+
+    // 2. Filter Data: Get next 8 items (approx 24 hours)
+    const hourlyData = globalForecastData.slice(0, 8);
     
-    // The API gives data every 3 hours. slice(0, 8) takes the next 8 items (24 hours)
-    const next24Hours = data.list.slice(0, 8); 
-
-    next24Hours.forEach(item => {
+    // 3. Render List
+    forecastList.innerHTML = "";
+    hourlyData.forEach(item => {
         const time = new Date(item.dt_txt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         const temp = Math.round(item.main.temp) + "°C";
+        const desc = item.weather[0].description;
         const icon = item.weather[0].icon;
+
+        const html = `
+            <div class="list-item">
+                <p class="item-time">${time}</p>
+                <img src="https://openweathermap.org/img/wn/${icon}.png">
+                <p class="item-desc">${desc}</p>
+                <p class="item-temp">${temp}</p>
+            </div>
+        `;
+        forecastList.innerHTML += html;
+    });
+}
+
+function showWeekly() {
+    // 1. Highlight the correct tab
+    document.querySelectorAll(".tab-btn")[0].classList.remove("active");
+    document.querySelectorAll(".tab-btn")[1].classList.add("active");
+
+    // 2. Filter Data: Get one reading per day (12:00 PM)
+    const weeklyData = globalForecastData.filter(item => item.dt_txt.includes("12:00:00"));
+
+    // 3. Render List
+    forecastList.innerHTML = "";
+    weeklyData.forEach(item => {
+        const date = new Date(item.dt_txt).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+        const temp = Math.round(item.main.temp) + "°C";
+        const desc = item.weather[0].description;
+        const icon = item.weather[0].icon;
+
+        const html = `
+            <div class="list-item">
+                <p class="item-time" style="width:120px">${date}</p>
+                <img src="https://openweathermap.org/img/wn/${icon}.png">
+                <p class="item-desc">${desc}</p>
+                <p class="item-temp">${temp}</p>
+            </div>
+        `;
+        forecastList.innerHTML += html;
+    });
+}
+
+function updateBackground(weather) {
+    // Dynamic Gradient based on weather
+    if (weather === "Clear") {
+        leftPanel.style.background = "linear-gradient(135deg, #fce38a, #f38181)";
+    } else if (weather === "Clouds") {
+        leftPanel.style.background = "linear-gradient(135deg, #5c6bc0, #512da8)";
+    } else if (weather === "Rain") {
+        leftPanel.style.background = "linear-gradient(135deg, #243b55, #141e30)";
+    } else if (weather === "Drizzle") {
+        leftPanel.style.background = "linear-gradient(135deg, #4ca1af, #c4e0e5)";
+    } else if (weather === "Mist") {
+        leftPanel.style.background = "linear-gradient(135deg, #bdc3c7, #2c3e50)";
+    } else {
+        leftPanel.style.background = "linear-gradient(135deg, #667eea, #764ba2)";
+    }
+}
+
+// Event Listeners
+searchBtn.addEventListener("click", () => checkWeather(searchBox.value));
+searchBox.addEventListener("keydown", (e) => {
+    if(e.key === "Enter") checkWeather(searchBox.value);
+});
+
+// ... (Keep all your existing code above) ...
+
+// NEW: Function to get user's location automatically
+function getUserLocation() {
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                // Success! We got the coordinates
+                const lat = position.coords.latitude;
+                const lon = position.coords.longitude;
+                
+                // Now call the API with coordinates instead of city name
+                checkWeatherByCoords(lat, lon);
+            },
+            (error) => {
+                // Error (User denied permission or location failed)
+                console.log("Geolocation error:", error);
+                alert("Please allow location access or search for a city manually.");
+            }
+        );
+    } else {
+        alert("Geolocation is not supported by your browser.");
+    }
+}
+
+// NEW: Function to fetch weather using Latitude & Longitude
+async function checkWeatherByCoords(lat, lon) {
+    // Note: We use a slightly different URL for coordinates
+    const coordsUrl = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&units=metric&appid=${apiKey}`;
+    const forecastUrlCoords = `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&units=metric&appid=${apiKey}`;
+
+    try {
+        const response = await fetch(coordsUrl);
+        const data = await response.json();
+
+        // 1. Update Left Panel (Current Weather)
+        document.querySelector(".city").innerHTML = data.name; // API gives us the city name for coords!
+        document.querySelector(".temp").innerHTML = Math.round(data.main.temp) + "°C";
+        document.querySelector(".humidity").innerHTML = data.main.humidity + "%";
+        document.querySelector(".wind").innerHTML = data.wind.speed + " km/h";
+        document.querySelector(".desc").innerHTML = data.weather[0].description;
         
-        const hourlyHTML = `
-            <div class="hourly-card">
-                <p>${time}</p>
-                <img src="https://openweathermap.org/img/wn/${icon}.png" alt="icon">
-                <p>${temp}</p>
-            </div>
-        `;
-        hourlyContainer.innerHTML += hourlyHTML;
-    });
+        const weatherMain = data.weather[0].main;
+        const iconCode = data.weather[0].icon;
+        document.querySelector(".weather-icon").src = `https://openweathermap.org/img/wn/${iconCode}@4x.png`;
 
-    // --- PART B: WEEKLY FORECAST (Next 5 Days) ---
-    const weeklyContainer = document.querySelector(".weekly-container");
-    weeklyContainer.innerHTML = ""; // Clear old data
+        updateBackground(weatherMain); // Use your existing background function
 
-    // Filter to get only one reading per day (e.g., at 12:00:00 PM)
-    const dailyForecast = data.list.filter(reading => reading.dt_txt.includes("12:00:00"));
+        // 2. Fetch Forecast Data (We need a similar fetch for the forecast endpoint)
+        const forecastResponse = await fetch(forecastUrlCoords);
+        const forecastData = await forecastResponse.json();
+        
+        globalForecastData = forecastData.list; // Save data for toggling
+        showHourly(); // Show the list
 
-    dailyForecast.forEach(day => {
-        const date = new Date(day.dt_txt).toLocaleDateString([], { weekday: 'long' }); // e.g., "Monday"
-        const temp = Math.round(day.main.temp) + "°C";
-        const icon = day.weather[0].icon;
-        const desc = day.weather[0].description;
-
-        const weeklyHTML = `
-            <div class="weekly-row">
-                <p>${date}</p>
-                <img src="https://openweathermap.org/img/wn/${icon}.png" alt="icon">
-                <p>${desc}</p>
-                <p style="font-weight: bold;">${temp}</p>
-            </div>
-        `;
-        weeklyContainer.innerHTML += weeklyHTML;
-    });
+    } catch (error) {
+        console.error("Error fetching weather by coords:", error);
+    }
 }
 
-// Helper Function: Changes Background & Icon based on weather
-function updateWeatherVisuals(weatherType) {
-    if (weatherType == "Clouds") {
-        weatherIcon.src = "https://cdn-icons-png.flaticon.com/512/1163/1163624.png";
-        card.style.background = "linear-gradient(135deg, #5c6bc0, #512da8)";
-    } else if (weatherType == "Clear") {
-        weatherIcon.src = "https://cdn-icons-png.flaticon.com/512/869/869869.png";
-        card.style.background = "linear-gradient(135deg, #fce38a, #f38181)";
-    } else if (weatherType == "Rain") {
-        weatherIcon.src = "https://cdn-icons-png.flaticon.com/512/1163/1163657.png";
-        card.style.background = "linear-gradient(135deg, #243b55, #141e30)";
-    } else if (weatherType == "Drizzle") {
-        weatherIcon.src = "https://cdn-icons-png.flaticon.com/512/3076/3076129.png";
-        card.style.background = "linear-gradient(135deg, #4ca1af, #c4e0e5)";
-    } else if (weatherType == "Mist") {
-        weatherIcon.src = "https://cdn-icons-png.flaticon.com/512/4005/4005901.png";
-        card.style.background = "linear-gradient(135deg, #cfd9df, #e2ebf0)";
-        card.style.color = "#333"; // Dark text for light background
-        return; 
-    }
-    card.style.color = "#fff"; // Reset text to white for other backgrounds
-}
-
-searchBtn.addEventListener("click", () => {
-    checkWeather(searchBox.value);
-})
-
-searchBox.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-        checkWeather(searchBox.value);
-    }
-})
+// CALL THIS FUNCTION AUTOMATICALLY ON PAGE LOAD
+getUserLocation();
